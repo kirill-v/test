@@ -12,7 +12,8 @@ enum class Command
 {
     UNKNOWN,
     SET_STATE, SET_COLOR, SET_RATE,
-    GET_STATE, GET_COLOR, GET_RATE
+    GET_STATE, GET_COLOR, GET_RATE,
+    STOP_SERVER
 };
 
 enum class ResultStatus {FAILED, OK};
@@ -46,7 +47,10 @@ private:
     bool get_rate(const std::string& args, std::string& answer);
     
     bool unknown_command_handler(const std::string& args, std::string& answer);
+    bool stop_server(const std::string& args, std::string& answer);
     bool make_clean_pipe(const std::string& pipe_name);
+    bool parse_command(const std::string& buffer, const std::string &pipe_out);
+    bool process_command(const std::string& arguments, const std::string &pipe_out);
 //     bool read_request();
 //     bool write_answer();
     led::LED _led;

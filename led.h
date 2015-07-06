@@ -66,7 +66,15 @@ public:
             
     void PrintState() const
     {
-        std::cout << "LED: state: " << (int)_state << ", color: " << (int)_color << " rate: " << _rate << std::endl;
+        State state = _state;
+        Color color = _color;
+        auto state_pair = std::find_if(led::LED::STATE_MAP.begin(), led::LED::STATE_MAP.end(),
+                                       [state](const led::LED::StateMap::value_type& pair)
+                                       {return pair.second == state;});
+        auto color_pair = std::find_if(led::LED::COLOR_MAP.begin(), led::LED::COLOR_MAP.end(),
+                                       [color](const led::LED::ColorMap::value_type& pair)
+                                       {return pair.second == color;});
+        std::cout << "LED: state: " << state_pair->first << ", color: " << color_pair->first << ", rate: " << _rate << std::endl;
     }
     
     State GetState() const { return _state; }

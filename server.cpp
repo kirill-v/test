@@ -18,26 +18,12 @@ const Server::CommandMap Server::COMMAND_MAP =
     {"set-led-color", Command::SET_COLOR},
     {"get-led-color", Command::GET_COLOR},
     {"set-led-rate", Command::SET_RATE},
-    {"get-led-rate", Command::GET_RATE}
+    {"get-led-rate", Command::GET_RATE},
+    {"stop-server", Command::STOP_SERVER}
 };
-
-// const Server::StateMap Server::STATE_MAP =
-// {
-//     {"on", led::State::ON},
-//     {"off", led::State::OFF}
-// };
-// 
-// const Server::ColorMap Server::COLOR_MAP = 
-// {
-//     {"red", led::Color::RED},
-//     {"green", led::Color::GREEN},
-//     {"blue", led::Color::BLUE}
-// };
     
 bool Server::set_state(const std::string& state_string, std::string& answer)
 {
-    printf("In Server::set_state\n");
-    printf("state_string: _%s_\n", state_string.c_str());
     bool success = false;
     auto state_pair = led::LED::STATE_MAP.find(state_string);
     if (state_pair != led::LED::STATE_MAP.end())
@@ -53,7 +39,6 @@ bool Server::set_state(const std::string& state_string, std::string& answer)
 
 bool Server::set_color(const std::string& color_string, std::string& answer)
 {
-    printf("In Server::set_color\n");
     bool success = false;
     auto color_pair = led::LED::COLOR_MAP.find(color_string);
     if (color_pair != led::LED::COLOR_MAP.end())
@@ -69,7 +54,6 @@ bool Server::set_color(const std::string& color_string, std::string& answer)
 
 bool Server::set_rate(const std::string& rate_string, std::string& answer)
 {
-    printf("In Server::set_rate\n");
     bool success = false;
     int rate = led::LED::INVALID_RATE;
     try
@@ -88,7 +72,6 @@ bool Server::set_rate(const std::string& rate_string, std::string& answer)
 
 bool Server::get_state(const std::string& args, std::string& answer)
 {
-    printf("In Server::get_state\n");
     led::State state = _led.GetState();
     auto state_pair = std::find_if(led::LED::STATE_MAP.begin(), led::LED::STATE_MAP.end(),
                                    [&state](const led::LED::StateMap::value_type& pair)
@@ -104,8 +87,6 @@ bool Server::get_state(const std::string& args, std::string& answer)
 
 bool Server::get_color(const std::string& args, std::string& answer)
 {
-    
-    printf("In Server::get_color\n");
     led::Color color = _led.GetColor();
     auto color_pair = std::find_if(led::LED::COLOR_MAP.begin(), led::LED::COLOR_MAP.end(),
                                    [&color](const led::LED::ColorMap::value_type& pair)
@@ -121,8 +102,6 @@ bool Server::get_color(const std::string& args, std::string& answer)
 
 bool Server::get_rate(const std::string& args, std::string& answer)
 {
-    
-    printf("In Server::get_rate\n");
     led::Rate rate = _led.GetRate();
     if (rate >= led::LED::MIN_RATE && rate <= led::LED::MAX_RATE)
     {
@@ -137,6 +116,12 @@ bool Server::unknown_command_handler(const std::string& args, std::string& answe
 {
     printf("Unknown command with arguments: %s\n", args.c_str());
     answer = Server::FAILED_STRING;
+    return true;
+}
+
+bool Server::stop_server(const std::string& args, std::string& answer)
+{
+    answer = Server::OK_STRING;
     return true;
 }
 
@@ -180,6 +165,28 @@ int write_to_pipe(const std::string& pipe_out, const std::string& message)
     return bytes;    
 }
 
+bool Server::parse_command(const std::string& buffer, const std::string& pipe_out)
+{
+    auto command_pair = Server::COMMAND_MAP.find(buffer);
+    _last_command = (command_pair != Server::COMMAND_MAP.end()) ?
+                        command_pair->second : Command::UNKNOWN;
+    if (_last_command == Command::STOP_SERVER)
+    {
+        process_command("", pipe_out);
+        printf("Stopping server\n");
+        return false;
+    }
+    return true;
+}
+
+bool Server::process_command(const std::string &arguments, const std::string& pipe_out)
+{
+    std::string answer;
+    _handlers_map[_last_command](*this, arguments, answer);
+    write_to_pipe(pipe_out, answer);
+    _led.PrintState();
+}
+
 Server::Server()
 {
     _handlers_map = 
@@ -190,6 +197,7 @@ Server::Server()
         {Command::GET_COLOR, &server::Server::get_color},
         {Command::SET_RATE, &server::Server::set_rate},
         {Command::GET_RATE, &server::Server::get_rate},
+        {Command::STOP_SERVER, &server::Server::stop_server},
         {Command::UNKNOWN, &server::Server::unknown_command_handler}
     };
     
@@ -198,7 +206,7 @@ Server::Server()
 
 void Server::Run(const std::string& pipe_in, const std::string& pipe_out)
 {
-    printf("Starting server with pipes: %s,%s\n", pipe_in.c_str(), pipe_out.c_str());
+    printf("Starting server with pipes: %s, %s\n", pipe_in.c_str(), pipe_out.c_str());
     
     if (!make_clean_pipe(pipe_in) || !make_clean_pipe(pipe_out))
     {
@@ -213,9 +221,8 @@ void Server::Run(const std::string& pipe_in, const std::string& pipe_out)
     }   
     
     char buffer[Server::MAX_COMMAND_LEN + 1] = "\0";
-    int bytes_number_read, bytes_number_write, args_start = 0;
+    int bytes_number_read, args_start = 0;
     bool is_reading_args = false;
-    std::string answer;
     for (int i=0; ; )
     {
         if ((bytes_number_read = read(fd_in, buffer + i, 1)) == -1)
@@ -225,7 +232,6 @@ void Server::Run(const std::string& pipe_in, const std::string& pipe_out)
         }
         else if (bytes_number_read == 0)
         {
-            printf("read returns 0 bytes\n");
             sleep(1);
         }
         else
@@ -254,26 +260,21 @@ void Server::Run(const std::string& pipe_in, const std::string& pipe_out)
                 args_start = i + 1;
                 is_reading_args = true;
                 buffer[i] = '\0';
-                printf("Command: %s\n", buffer);
-                auto command_pair = Server::COMMAND_MAP.find(buffer);
-                _last_command = (command_pair != Server::COMMAND_MAP.end()) ?
-                                    command_pair->second : Command::UNKNOWN;
-                                    
+                if (!parse_command(buffer, pipe_out))
+                {
+                    return;
+                }
             }
             else if ((buffer[i] == '\n') && !is_reading_args)
             {
                 args_start = 0;
                 is_reading_args = false;
                 buffer[i] = '\0';
-                printf("Command: %s\n", buffer);
-                auto command_pair = Server::COMMAND_MAP.find(buffer);
-                _last_command = (command_pair != Server::COMMAND_MAP.end()) ?
-                                    command_pair->second : Command::UNKNOWN;
-                _handlers_map[_last_command](*this, std::string(""), answer);
-                printf("Answer: %s\n", answer.c_str());
-                bytes_number_write = write_to_pipe(pipe_out, answer);
-                printf("Bytes number write: %d\n", bytes_number_write);
-                _led.PrintState();
+                if (!parse_command(buffer, pipe_out))
+                {
+                    return;
+                }
+                process_command("", pipe_out);
                 i = 0;
                 continue;
             }
@@ -283,12 +284,7 @@ void Server::Run(const std::string& pipe_in, const std::string& pipe_out)
                 _last_arguments = buffer + args_start;
                 is_reading_args = false;
                 args_start = 0;
-                printf("Arguments: %s\n", _last_arguments.c_str());
-                _handlers_map[_last_command](*this, _last_arguments, answer);
-                printf("Answer: %s\n", answer.c_str());
-                bytes_number_write = write_to_pipe(pipe_out, answer);
-                printf("Bytes number write: %d\n", bytes_number_write);
-                _led.PrintState();
+                process_command(_last_arguments, pipe_out);
                 i = 0;
                 continue;
             }

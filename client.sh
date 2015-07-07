@@ -1,6 +1,6 @@
 #!/bin/bash
 
-if [[ $1 == "-h" || $1 == "--help" ]]; then
+if [[ $1 == "-h" || $1 == "--help" || $# == 0 ]]; then
 	echo "Usage: $0 command"
 	echo "Supported commands:"
 	printf "\t set-led-state on/off\n"

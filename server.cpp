@@ -212,7 +212,7 @@ void Server::Run(const std::string& pipe_in, const std::string& pipe_out)
     {
         return;
     }
-    
+    _led.PrintState();
     int fd_in = open(pipe_in.c_str(), O_RDONLY);
     if (fd_in == -1)
     {
@@ -250,11 +250,14 @@ void Server::Run(const std::string& pipe_in, const std::string& pipe_out)
                         break;
                     }
                 }
+                _last_command = Command::UNKNOWN;
+                process_command("", pipe_out);
                 args_start = 0;
                 is_reading_args = false;
                 i=0;
                 buffer[0] = '\0';
             }
+            // Finished reading first word (command)
             else if (buffer[i] == ' ' && !is_reading_args)
             {
                 args_start = i + 1;
@@ -265,27 +268,23 @@ void Server::Run(const std::string& pipe_in, const std::string& pipe_out)
                     return;
                 }
             }
-            else if ((buffer[i] == '\n') && !is_reading_args)
+            // Finished reading the whole message
+            else if (buffer[i] == '\n')
             {
-                args_start = 0;
-                is_reading_args = false;
                 buffer[i] = '\0';
-                if (!parse_command(buffer, pipe_out))
+                _last_arguments = "";
+                if (is_reading_args)
+                {
+                    _last_arguments = buffer + args_start;
+                }
+                else if (!parse_command(buffer, pipe_out))
                 {
                     return;
                 }
-                process_command("", pipe_out);
-                i = 0;
-                continue;
-            }
-            else if ((buffer[i] == '\n') && is_reading_args)
-            {
-                buffer[i] = '\0';
-                _last_arguments = buffer + args_start;
-                is_reading_args = false;
-                args_start = 0;
                 process_command(_last_arguments, pipe_out);
                 i = 0;
+                args_start = 0;
+                is_reading_args = false;
                 continue;
             }
             ++i;
